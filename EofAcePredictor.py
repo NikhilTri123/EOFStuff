@@ -48,6 +48,7 @@ def get_zscores(data, month):
         all_zscores.append(zscore_map)
     all_zscores = np.array(all_zscores)
 
+    all_zscores = all_zscores[:len(all_zscores)]
     all_zscores = xr.DataArray(
         data=all_zscores,
         dims=('time', 'latitude', 'longitude'),

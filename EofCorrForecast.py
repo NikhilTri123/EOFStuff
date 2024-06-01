@@ -4,10 +4,14 @@ from sklearn.decomposition import PCA
 import cartopy.crs as ccrs
 import cartopy.feature as cf
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
+import CorrelationCalculator
 
-forecast_months = range(1, 13)
+forecast_months = range(5, 6)
 forecast_years = range(1970, 2024)
+eof_month = 9
+
+monthsDict = {1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June", 7: "July", 8: "August",
+              9: "September", 10: "October", 11: "November", 12: "December"}
 
 
 def detrendData(data):
@@ -81,65 +85,50 @@ pca = PCA(n_components=n_components)
 PCs = pca.fit_transform(sst_reshaped)
 print(f"PC matrix shape: {PCs.shape}")
 
-# Reshape the PCA results (EOFs) back to 3D (x, latitude, longitude)
-EOFs = np.zeros((n_components, lat_size, lon_size))
-for i in range(n_components):
-    EOFs[i, :, :] = pca.inverse_transform(np.eye(n_components)[i]).reshape(lat_size, lon_size)
-print(f"EOF matrix shape: {EOFs.shape}")
-
 explained_variance = pca.explained_variance_ratio_
 print(f"Explained variance: {explained_variance}")
 
-# plot cartopy subplot map
-fig, axes = plt.subplots(2, 2, subplot_kw={'projection': ccrs.PlateCarree(central_longitude=180)}, figsize=(12, 6))
-axes = axes.flatten()
-
-for i in range(n_components):
-    EOF = EOFs[i]
-    ax = axes[i]
-
+for i in range(1, 2):
     reshaped_array = PCs.T[i].reshape(len(forecast_months), -1)
     contributions = np.mean(reshaped_array, axis=0)
     contributions = np.array([forecast_years, contributions]).T
     contributions = contributions[contributions[:, 1].argsort()]
+    contributions[:, 1] *= -1
 
-    # plot various features for each subplot
+    sorted_values = contributions[contributions[:, 0].argsort()]
+    corr_map = CorrelationCalculator.main(sorted_values[:, 1], eof_month)
+    corr_map = corr_map.sel(latitude=slice(70, -30), longitude=slice(150, 360))
+
+    # plot cartopy map and various features
+    plt.figure(figsize=(12, 6))
+    ax = plt.axes(projection=ccrs.PlateCarree(central_longitude=180))
     ax.add_feature(cf.LAND)
     ax.add_feature(cf.STATES, linewidth=0.2, edgecolor="gray")
     ax.add_feature(cf.BORDERS, linewidth=0.3)
     ax.coastlines(linewidth=0.5, resolution='50m')
 
     # plot gridlines
-    gl = ax.gridlines(crs=ccrs.PlateCarree(central_longitude=0), draw_labels=True, linewidth=1, color='gray', alpha=0.5,
-                      linestyle='--')
+    gl = ax.gridlines(crs=ccrs.PlateCarree(central_longitude=0), draw_labels=True, linewidth=1, color='gray',
+                      alpha=0.5, linestyle='--')
     gl.top_labels = gl.right_labels = False
     gl.xlabel_style = {'size': 6, 'weight': 'bold', 'color': 'gray'}
     gl.ylabel_style = {'size': 6, 'weight': 'bold', 'color': 'gray'}
 
-    newcmp = LinearSegmentedColormap.from_list("", [
-        (0 / 20, "#FF8C89"),
-        (5 / 20, "#E12309"),
-        (7.5 / 20, "#FEC024"),
-        (10 / 20, "#FFFFFF"),
-        (12.5 / 20, "#228DFF"),
-        (15 / 20, "#104CE1"),
-        (20 / 20, "#AF75FE")])
-    newcmp = newcmp.reversed()
-
     # add data and colormap
-    ax.contourf(zscoreData.longitude, zscoreData.latitude, EOF, np.arange(-0.05, 0.05, 0.001), extend='both',
-                transform=ccrs.PlateCarree(), cmap=newcmp)
-    # cbar = ax.colorbar(pad=0.015, aspect=25, shrink=1)
-    # cbar.set_ticks(np.arange(-0.05, 0.06, 0.01))
-    # cbar.ax.tick_params(labelsize=8)
+    plt.contourf(corr_map.longitude, corr_map.latitude, corr_map, np.arange(-0.8, 0.8, 0.02), extend='both',
+                 transform=ccrs.PlateCarree(), cmap='RdBu_r')
+    cbar = plt.colorbar(pad=0.015, aspect=27, shrink=0.83)
+    cbar.set_ticks(np.arange(-0.8, 1, 0.2))
+    cbar.ax.tick_params(labelsize=7)
 
     # add titling
-    mainTitle = f"SST EOF{i + 1} (Explained variance: {round(float(explained_variance[i]), 3)})"
-    topYears = f"\nTop Years: {list(np.flip(contributions[:, 0][-3:].astype(int)))}"
-    bottomYears = f"\nBottom Years: {list(contributions[:, 0][:3].astype(int))}"
-    ax.set_title(mainTitle + topYears + bottomYears, fontsize=9, weight='bold', loc='left')
-    ax.set_title("DCAreaWx", fontsize=9, weight='bold', loc='right', color='gray')
+    mainTitle = f"ERA5 {monthsDict[eof_month]} Detrended SST Correlated to " \
+                f"{monthsDict[forecast_months[0]]} EOF{i + 1} in Box"
+    plt.title(mainTitle, fontsize=9, weight='bold', loc='left')
+    plt.title("DCAreaWx", fontsize=9, weight='bold', loc='right', color='gray')
+    ax.text(154, -27, 'Only significant correlations are plotted', fontsize=9, weight='bold',
+            transform=ccrs.PlateCarree())
 
-# save and display map
-plt.savefig(r"C:/Nikhil Stuff/Coding Stuff/EofMap.png", dpi=300, bbox_inches='tight')
-plt.show()
+    # save and display map
+    plt.savefig(r"C:/Nikhil Stuff/Coding Stuff/EofCorrMap.png", dpi=300, bbox_inches='tight')
+    plt.show()
